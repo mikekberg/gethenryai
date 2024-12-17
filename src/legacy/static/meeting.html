@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Details</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+    <img src="logo.png" class="logo" alt="Logo">
+    <h1>Meeting Details</h1>
+</header>
+
+<main>
+    <div class="left-section">
+        <div class="summary">
+            <!-- Summary text (HTML) will be inserted here -->
+        </div>
+        <div class="transcription">
+            <!-- Transcription text (HTML) will be inserted here -->
+        </div>
+    </div>
+
+    <div class="chat">
+        <h2>Chat</h2>
+        <div id="chat-window">
+            <!-- Chat messages will be appended here -->
+        </div>
+        <input type="text" id="user-input" placeholder="Ask a question...">
+        <button id="send-button">Send</button>
+    </div>
+</main>
+
+<script>
+    const chatWindow = document.getElementById('chat-window');
+    const userInput = document.getElementById('user-input');
+    const sendButton = document.getElementById('send-button');
+    const folder = new URLSearchParams(window.location.search).get('folder');
+
+    // Load transcript and summary
+    function loadTranscriptAndSummary() {
+        if (folder) {
+            // Load transcription.txt
+            fetch(`/data/${folder}/transcription.txt`)
+                .then(response => response.text())
+                .then(html => {
+                    document.querySelector('.transcription').innerHTML = html;
+                })
+                .catch(error => console.error('Error fetching transcription:', error));
+
+            // Load summary.txt
+            fetch(`/data/${folder}/summary.txt`)
+                .then(response => response.text())
+                .then(html => {
+                    document.querySelector('.summary').innerHTML = html;
+                })
+                .catch(error => console.error('Error fetching summary:', error));
+        } else {
+            console.error('No folder specified in URL');
+        }
+    }
+
+    // Load chat history from the server
+    function loadChatHistory() {
+        fetch(`/load-chat?folder=${folder}`)
+        .then(response => response.json())
+        .then(data => {
+            const messages = data.chat_history; // Now the messages are JSON objects
+            messages.forEach(message => {
+                appendMessage(message.sender, message.message, message.sender === 'AI' ? 'ai' : 'user');
+            });
+        })
+        .catch(error => console.error('Error loading chat history:', error));
+    }
+
+    // Append messages to the chat window with HTML rendering
+    function appendMessage(sender, message, type) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message', type); // Add appropriate CSS class based on type (user or ai)
+        messageElement.innerHTML = `${sender}: ${message}`; // Use innerHTML to render HTML-formatted messages
+        chatWindow.appendChild(messageElement);
+        chatWindow.scrollTop = chatWindow.scrollHeight; // Auto-scroll to the latest message
+    }
+
+    // Save chat message to the server
+    function saveChat(sender, message) {
+        fetch('/save-chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ folder: folder, sender: sender, message: message }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Message saved:', data);
+        })
+        .catch(error => console.error('Error saving chat:', error));
+    }
+
+    // Send user input to OpenAI API and get a response
+    function askOpenAI(question) {
+        fetch('/ask', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ question: question, transcript: document.querySelector('.transcription').textContent }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            const aiMessage = data.answer;
+            appendMessage('AI', aiMessage, 'ai');
+            saveChat('AI', aiMessage); // Save AI response to server
+        })
+        .catch(error => console.error('Error:', error));
+    }
+
+    // Send button event listener
+    sendButton.addEventListener('click', () => {
+        const userMessage = userInput.value;
+        if (userMessage) {
+            appendMessage('User', userMessage, 'user');
+            saveChat('User', userMessage); // Save user message to server
+            askOpenAI(userMessage); // Send message to OpenAI API
+            userInput.value = '';
+        }
+    });
+
+    // Load transcript, summary, and chat history when the page loads
+    window.onload = function() {
+        loadTranscriptAndSummary();
+        loadChatHistory();
+    };
+</script>
+
+</body>
+</html>

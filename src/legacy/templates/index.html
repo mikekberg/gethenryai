@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gethenry.ai</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <header>
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="logo" height="50px">
+        <h1>gethenry.ai</h1>
+    </header>
+    <main>
+        <div class="container">
+            <div class="links">
+                <!-- Dynamic links will be inserted here -->
+            </div>
+            <div class="buttons">
+                <button id="startBtn">Start Recording</button>
+                <button id="stopBtn" disabled>Stop Recording</button>
+            </div>
+        </div>
+    </main>
+    <script>
+        // Fetch folder names from the backend
+        fetch('/get-folders')
+            .then(response => response.json())
+            .then(folders => {
+                const linksDiv = document.querySelector('.links');
+
+                folders.forEach(folder => {
+                    const link = document.createElement('a');
+                    link.href = `/static/meeting.html?folder=${folder}`;
+                    link.textContent = `View Meeting: ${folder}`;
+                    linksDiv.appendChild(link);
+                    linksDiv.appendChild(document.createElement('br')); // New line after each link
+                });
+            })
+            .catch(error => console.error('Error fetching folders:', error));
+        
+        //media recorder script
+        let mediaRecorder;
+        let recordedChunks = [];
+  
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const downloadBtn = document.getElementById("downloadBtn");
+
+  
+        startBtn.addEventListener("click", startRecording);
+        stopBtn.addEventListener("click", stopRecording);
+        downloadBtn.addEventListener("click", downloadRecording);
+  
+        async function startRecording() {
+          recordedChunks = [];
+          try {
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true, // This captures system audio if available
+            });
+  
+            const micStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+            });
+  
+            const combinedStream = new MediaStream([
+              ...mergeAudioStreams(screenStream, micStream).getTracks(),
+            ]);
+            
+            const options = {
+              audioBitsPerSecond: 128000,
+              mimeType: "audio/webm",
+            };
+
+            mediaRecorder = new MediaRecorder(combinedStream, options);
+  
+            mediaRecorder.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+              }
+            };
+  
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: "audio/webm" }); 
+                
+                //set the filename of the outgoing file to be a timestamp
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0'); // Months are zero-indexed
+                const day = String(now.getDate()).padStart(2, '0');
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                
+                // Combine to form YYYYMMDDHHMMSS
+                const timestamp = `${year}${month}${day}${hours}${minutes}${seconds}`;
+                
+                // Use the timestamp for the filename
+                const filename = `${timestamp}.wav`;
+
+                const formData = new FormData();
+                formData.append('audioFile', blob, filename); 
+
+                fetch('/upload', {
+                method: 'POST',
+                body: formData,
+                }).then(response => response.json())
+                .then(data => console.log(data));  // Handle the response (e.g., transcription)
+
+              downloadBtn.disabled = false;
+            };
+  
+            mediaRecorder.start();
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+          } catch (error) {
+            console.error("Error starting recording:", error);
+          }
+        }
+  
+        function stopRecording() {
+          mediaRecorder.stop();
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+  
+        function downloadRecording() {
+          const blob = new Blob(recordedChunks, { type: "audio/webm" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          document.body.appendChild(a);
+          a.style = "display: none";
+          a.href = url;
+          a.download = "screen-recording.webm";
+          a.click();
+          window.URL.revokeObjectURL(url);
+        }
+  
+        function mergeAudioStreams(screenStream, micStream) {
+          const context = new AudioContext();
+          const destination = context.createMediaStreamDestination();
+  
+          if (screenStream.getAudioTracks().length > 0) {
+            const sourceScreen = context.createMediaStreamSource(screenStream);
+            sourceScreen.connect(destination);
+          }
+  
+          const sourceMic = context.createMediaStreamSource(micStream);
+          sourceMic.connect(destination);
+  
+          return destination.stream;
+        }
+      </script>
+</body>
+</html>
