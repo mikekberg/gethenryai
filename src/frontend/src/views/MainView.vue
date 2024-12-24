@@ -23,7 +23,7 @@
         </div>
       </template>
     </v-navigation-drawer>
-    <v-main class="mt-5">
+    <v-main class="mt-5 ml-10 mr-10 mb-5">
       <router-view />
     </v-main>
   </v-layout>
@@ -32,6 +32,7 @@
 <script lang="ts">
 import { useAuth0 } from "@auth0/auth0-vue";
 import { Options, Vue } from "vue-class-component";
+import henryApi from "@/services/henryService";
 
 @Options({
   components: {},
@@ -40,11 +41,15 @@ export default class MainView extends Vue {
   private logout!: () => void;
 
   async mounted() {
-    const { logout } = useAuth0();
+    const { getAccessTokenSilently, isAuthenticated, logout } = useAuth0();
+
     this.logout = logout;
 
-    const { getAccessTokenSilently } = useAuth0();
-    console.log(await getAccessTokenSilently());
+    if (isAuthenticated) {
+      const token = await getAccessTokenSilently();
+      console.log("setting token", token);
+      henryApi.setAuthToken(token);
+    }
   }
 }
 </script>

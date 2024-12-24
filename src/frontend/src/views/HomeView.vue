@@ -1,17 +1,29 @@
 <template>
-  <div class="home text-center">
-    <HelloWorld msg="Welcome to Your Vue.js + TypeScript App" />
+  <div>
+    <CalendarItems />
   </div>
 </template>
 
 <script lang="ts">
 import { Options, Vue } from "vue-class-component";
-import HelloWorld from "@/components/HelloWorld.vue"; // @ is an alias to /src
+import { useQueryClient, useQuery, useMutation } from "@tanstack/vue-query";
+import henryApi from "@/services/henryService";
+import CalendarItems from "@/components/CalendarItems.vue";
 
 @Options({
   components: {
-    HelloWorld,
+    CalendarItems,
   },
 })
-export default class HomeView extends Vue {}
+export default class HomeView extends Vue {
+  async mounted() {
+    const { data } = useQuery({
+      queryFn: henryApi.getGoogleCalendarEvents,
+      queryKey: ["googleCalendarEvents"],
+    });
+    console.log(data);
+
+    await henryApi.ping();
+  }
+}
 </script>

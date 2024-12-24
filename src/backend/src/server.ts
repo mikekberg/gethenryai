@@ -1,25 +1,55 @@
-// src/index.ts
-import express, { Application, Express, Request, Response } from "express";
-import dotenv from "dotenv";
-import Server from "./index";
+import "reflect-metadata";
 
-dotenv.config();
+import express, { Application } from "express";
+import { createExpressServer } from "routing-controllers";
+import { auth } from "express-oauth2-jwt-bearer";
+import path from "path";
+import { GoogleCalendarController } from "./controllers/googlecalendar.controller";
+import { PingController } from "./controllers/ping.controller";
 
-const app: Application = express();
-const server: Server = new Server(app);
-const port = process.env.PORT || 3000;
+export interface HeneryAPIServerConfig {
+  port?: number;
+  routePrefix?: string;
+}
 
-// Swagger setup
-//setupSwagger(app);
+export default class HenryAPIServer {
+  public app: Application;
 
-app
-  .listen(port, () => {
-    console.log(`⚡️[server]: Server is running at http://localhost:${port}`);
-  })
-  .on("error", (err: any) => {
-    if (err.code === "EADDRINUSE") {
-      console.log("Error: address already in use");
-    } else {
-      console.log(err);
-    }
-  });
+  constructor(public config: HeneryAPIServerConfig = {}) {
+    this.app = createExpressServer({
+      defaults: {
+        nullResultCode: 404,
+        undefinedResultCode: 204,
+        paramOptions: {
+          required: true,
+        },
+      },
+      routePrefix: config.routePrefix,
+      cors: {
+        origin: "*",
+        allowedHeaders: "*",
+        exposedHeaders: "*",
+        credentials: true,
+      },
+      controllers: [PingController, GoogleCalendarController],
+    });
+
+    this.config.port = config.port || Number(process.env.port) || 3000;
+  }
+
+  public start() {
+    this.app
+      .listen(this.config.port, () => {
+        console.log(
+          `⚡️[server]: Server is running at http://localhost:${this.config.port}`
+        );
+      })
+      .on("error", (err: any) => {
+        if (err.code === "EADDRINUSE") {
+          console.log("Error: address already in use");
+        } else {
+          console.log(err);
+        }
+      });
+  }
+}
