@@ -1,13 +1,12 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
-      "module": "commonjs",
+        "module": "commonjs",
         "target": "es6",
         "outDir": "dist",
         "rootDir": ".",
         "sourceMap": true,
         "strict": false
     },
-    "include": ["src/**/*.ts", "httpFunction/*.ts"]
-  }
-  
+    "include": ["src/**/*.ts", "httpFunction/*.ts", "processEvents/*.ts"]
+}

@@ -1,6 +1,6 @@
 {
-  "watch": ["src/**/*.ts"],
-  "ignore": ["src/**/*.spec.ts"],
-  "ext": "ts",
-  "exec": "ts-node -r tsconfig-paths/register -P tsconfig.local.json src/localserver.ts"
+    "watch": ["src/**/*.ts"],
+    "ignore": ["src/**/*.spec.ts"],
+    "ext": "ts",
+    "exec": "ts-node -r dotenv/config -r tsconfig-paths/register -P tsconfig.local.json src/localserver.ts"
 }

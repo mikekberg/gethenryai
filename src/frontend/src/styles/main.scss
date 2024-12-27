@@ -3,3 +3,29 @@ body,
 #app {
   height: 100%;
 }
+
+.meetings-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+
+  tr:first-child td {
+    padding-top: 0;
+  }
+
+  td {
+    &:first-child {
+      width: 40%;
+    }
+
+    padding-top: 10px;
+
+    .meeting-title {
+      font-size: 24px;
+    }
+
+    .v-btn {
+      width: 200px;
+    }
+  }
+}
