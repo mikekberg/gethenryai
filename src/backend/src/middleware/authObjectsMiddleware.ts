@@ -1,23 +1,15 @@
-import { ManagementClient } from 'auth0';
 import { ExpressMiddlewareInterface } from 'routing-controllers';
 import { Request, Response } from 'express';
-import { google } from 'googleapis';
+import AuthManagementService from 'src/services/authManagementService';
 
+// When used as middleware, this class will add the following properties to the request object:
+// - auth0UserInfo: The user information from Auth0
+// - googleAuthClient: The Google Auth client
 export default class AuthObjectsMiddleware
     implements ExpressMiddlewareInterface
 {
-    // interface implementation is optional
-
     use(request: Request, response: Response, next: (err?: any) => any): any {
-        var auth0MgmtClient = new ManagementClient({
-            domain: process.env.AUTH0_DOMAIN || 'henryai.ca.auth0.com',
-            clientId:
-                process.env.AUTH0_CLIENT_ID ||
-                'PFz1gfzKLEDUKZHU1k7l7YZiEpMgeTvW',
-            clientSecret:
-                process.env.AUTH0_CLIENT_SECRET ||
-                '2ouJeyubjHIt05ZmiPyMYwyMm5fhnhWO0C80s5G2OBW1Vtk7U5XpO14earqwrXYQ'
-        });
+        const mgmtService = new AuthManagementService();
         const userId = request.auth?.payload.sub || '';
 
         if (!userId) {
@@ -26,32 +18,24 @@ export default class AuthObjectsMiddleware
                 .send({ message: 'User token data not found' });
         }
 
-        auth0MgmtClient.users
-            .get({ id: userId })
-            .then((userDataResponse) => {
-                const auth0UserInfo = userDataResponse.data;
+        mgmtService
+            .getAuth0UserInfo(userId)
+            .then((auth0UserInfo) => {
                 request.auth0UserInfo = auth0UserInfo;
-
                 const googleIdentity = auth0UserInfo.identities.find(
                     (x: any) => x.provider === 'google-oauth2'
                 );
 
-                if (!googleIdentity) {
-                    return;
+                if (googleIdentity) {
+                    request.googleAuthClient = mgmtService.getGoogleAuthClient(
+                        googleIdentity.access_token
+                    );
                 }
 
-                const authClient = new google.auth.OAuth2();
-                authClient.setCredentials({
-                    access_token: googleIdentity.access_token
-                });
-
-                request.googleAuthClient = authClient;
+                next();
             })
             .catch((error) => {
-                console.log('Error: ', error);
-            })
-            .finally(() => {
-                next();
+                next(error);
             });
     }
 }

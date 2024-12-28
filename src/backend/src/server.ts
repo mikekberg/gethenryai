@@ -1,12 +1,45 @@
 import 'reflect-metadata';
 
 import express, { Application } from 'express';
-import { createExpressServer } from 'routing-controllers';
-import { auth } from 'express-oauth2-jwt-bearer';
+import { Action, createExpressServer, useContainer } from 'routing-controllers';
+import { auth, AuthOptions } from 'express-oauth2-jwt-bearer';
 import { GoogleCalendarController } from './controllers/googlecalendar.controller';
 import { PingController } from './controllers/ping.controller';
 import { MeetingInfoController } from './controllers/meetinginfo.controller';
-import cors from 'cors';
+import { Container } from 'typedi';
+import AuthManagementService from './services/authManagementService';
+
+// Enable Dependency Injection
+useContainer(Container);
+
+// Authorization Checker
+function auth0AuthChecker(opts: AuthOptions) {
+    const auth0 = auth(opts);
+
+    return async (action: Action, roles: string[]) =>
+        new Promise<boolean>((resolve, reject) => {
+            auth0(action.request, action.response, (err: any) => {
+                if (err) {
+                    reject(false);
+                } else {
+                    resolve(true);
+                }
+            });
+        });
+}
+
+// Current User Checker
+function currentUserChecker(authService: AuthManagementService) {
+    return (action: Action) => {
+        const userId = action.request.auth?.payload?.sub;
+
+        if (!userId) {
+            return null;
+        } else {
+            return authService.getAuth0UserInfo(userId);
+        }
+    };
+}
 
 export interface HeneryAPIServerConfig {
     port?: number;
@@ -25,6 +58,13 @@ export default class HenryAPIServer {
                     required: true
                 }
             },
+            authorizationChecker: auth0AuthChecker({
+                issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`,
+                audience: process.env.AUTH0_AUDIENCE
+            }),
+            currentUserChecker: currentUserChecker(
+                Container.get(AuthManagementService)
+            ),
             routePrefix: config.routePrefix,
             cors: {
                 origin: '*',
@@ -39,14 +79,6 @@ export default class HenryAPIServer {
             ],
             middlewares: []
         });
-
-        this.app.use(
-            auth({
-                issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`,
-                audience: process.env.AUTH0_AUDIENCE,
-                authRequired: true
-            })
-        );
 
         this.config.port = config.port || Number(process.env.port) || 3000;
     }

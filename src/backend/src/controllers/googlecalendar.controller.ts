@@ -1,17 +1,9 @@
-import { Get, UseBefore, Req, JsonController } from 'routing-controllers';
+import { Get, Req, JsonController, Authorized } from 'routing-controllers';
 import { google } from 'googleapis';
 import { Request } from 'express';
-import AuthObjectsMiddleware from '../middleware/authObjectsMiddleware';
-import { auth } from 'express-oauth2-jwt-bearer';
 
 @JsonController('/gcal')
-@UseBefore(
-    auth({
-        issuerBaseURL: `https://henryai.ca.auth0.com`,
-        audience: 'https://api.gethenryai.com'
-    }),
-    AuthObjectsMiddleware
-)
+@Authorized()
 export class GoogleCalendarController {
     @Get('/events')
     public async getEvents(@Req() request: Request) {

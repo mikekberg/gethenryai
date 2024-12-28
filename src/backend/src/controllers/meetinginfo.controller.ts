@@ -2,61 +2,28 @@ import {
     Get,
     JsonController,
     Req,
-    Post,
-    UploadedFile,
-    UseBefore
+    UseBefore,
+    Param,
+    QueryParam,
+    Authorized
 } from 'routing-controllers';
-import { TableClient } from '@azure/data-tables';
 import {
     BlobSASPermissions,
     BlobServiceClient,
     ContainerClient
 } from '@azure/storage-blob';
+import { TableClient } from '@azure/data-tables';
 import { QueueClient, QueueServiceClient } from '@azure/storage-queue';
 import { Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import AuthObjectsMiddleware from '../middleware/authObjectsMiddleware';
-import { auth } from 'express-oauth2-jwt-bearer';
-import { ProcessMeetingEvent, ProcessMeetingData } from '../lib/events';
+import { ProcessMeetingEvent } from '../lib/events';
 import {
-    MulterAzureStorage,
-    MASNameResolver,
-    MulterOutFile
-} from 'multer-azure-blob-storage';
-import multer from 'multer';
-import { promises as fs } from 'fs';
-import path from 'path';
-import multipart from 'parse-multipart';
-import { HttpRequest } from '@azure/functions';
-
-if (process.env.AZURE_STORAGE_CONNECTION_STRING === undefined) {
-    throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
-}
-
-const resolveBlobName: MASNameResolver = (
-    req: any,
-    file: Express.Multer.File
-): Promise<string> => {
-    return new Promise<string>((resolve, reject) => {
-        const blobName: string = file.filename || file.originalname;
-        resolve(blobName);
-    });
-};
-
-const azureStorage: MulterAzureStorage = new MulterAzureStorage({
-    connectionString: process.env.AZURE_STORAGE_CONNECTION_STRING,
-    containerName: 'meetingaudio',
-    blobName: resolveBlobName
-});
+    MEETINGAUDIO_AZURE_CONTAINER,
+    MeetingInfo
+} from 'src/lib/meetingTypes';
 
 @JsonController('/meetings')
-@UseBefore(
-    auth({
-        issuerBaseURL: `https://henryai.ca.auth0.com`,
-        audience: 'https://api.gethenryai.com'
-    }),
-    AuthObjectsMiddleware
-)
+@Authorized()
 export class MeetingInfoController {
     private static readonly MEETING_TABLE_NAME = 'meetings';
 
@@ -88,10 +55,10 @@ export class MeetingInfoController {
 
         this.meetingAudioBlobClient = BlobServiceClient.fromConnectionString(
             process.env.AZURE_STORAGE_CONNECTION_STRING
-        ).getContainerClient('meetingaudio');
+        ).getContainerClient(MEETINGAUDIO_AZURE_CONTAINER);
     }
 
-    private async queueProcessMeetingEvent(data: ProcessMeetingData) {
+    private async queueProcessMeetingEvent(data: MeetingInfo) {
         const event: ProcessMeetingEvent = {
             event_name: 'process_meeting',
             data
@@ -130,6 +97,7 @@ export class MeetingInfoController {
 
         const userId = request.auth?.payload.sub;
         const meetingId = uuidv4();
+
         const blobClient = this.meetingAudioBlobClient.getBlockBlobClient(
             `${userId}/${meetingId}.wav`
         );
@@ -146,58 +114,49 @@ export class MeetingInfoController {
         };
     }
 
-    @Post('/create')
+    @Get('/create/:id')
     public async createMeeting(
-        @Req() request: Request,
-        @UploadedFile('audioFile', {
-            options: { storage: multer.memoryStorage() }
-        })
-        file: MulterOutFile
+        @Param('id') id: string,
+        @QueryParam('calendarEventId', { required: false })
+        calendarEventId: string,
+        @Req() request: Request
     ) {
         if (request.auth?.payload.sub === undefined) {
             throw new Error('User ID not found in request');
         }
-        const id = uuidv4();
-        var fileBuffer: Buffer;
 
-        if (process.env.FUNCTIONS_WORKER_RUNTIME) {
-            const bodyBuffer = Buffer.from(request.body);
-            const boundary = multipart.getBoundary(
-                request.headers['content-type'] || ''
+        const userId = request.auth?.payload.sub;
+        const audioFile = `${userId}/${id}.wav`;
+
+        if (
+            !(await this.meetingAudioBlobClient
+                .getBlobClient(audioFile)
+                .exists())
+        ) {
+            throw new Error(
+                'Unable to create meeting, Audio file not uploaded.'
             );
-            // parse the body
-            const parts = multipart.Parse(bodyBuffer, boundary);
-
-            console.log(parts);
-
-            throw new Error('Not implemented');
-        } else {
-            fileBuffer = file.buffer;
         }
 
-        await this.meetingAudioBlobClient
-            .getBlockBlobClient(
-                file.filename || file.originalname || 'test.wav'
-            )
-            .uploadData(fileBuffer);
+        const meetingInfo: MeetingInfo = {
+            id,
+            userId,
+            audioFile,
+            calendarEventId,
+            state: 'processing'
+        };
 
         await this.azureMeetingTableClient.createEntity({
-            partitionKey: request.auth?.payload.sub,
-            userId: request.auth?.payload.sub,
-            rowKey: id,
-            audioFileUrl: file.url,
-            calendarEventId: ''
+            rowKey: meetingInfo.id,
+            partitionKey: userId,
+            ...meetingInfo
         });
 
-        /*await this.queueProcessMeetingEvent({
-            meeting_id: id,
-            audio_url: file.url
-        });*/
+        await this.queueProcessMeetingEvent(meetingInfo);
 
         return {
             message: 'Meeting created',
-            audioFileUrl: file.url,
-            id
+            data: meetingInfo
         };
     }
 }

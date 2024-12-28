@@ -1,13 +1,10 @@
+import { MeetingInfo } from './meetingTypes';
+
 export interface Event<T> {
     event_name: string;
     data: T;
 }
 
-export interface ProcessMeetingData {
-    meeting_id: string;
-    audio_url: string;
-}
-
-export interface ProcessMeetingEvent extends Event<ProcessMeetingData> {
+export interface ProcessMeetingEvent extends Event<MeetingInfo> {
     event_name: 'process_meeting';
 }

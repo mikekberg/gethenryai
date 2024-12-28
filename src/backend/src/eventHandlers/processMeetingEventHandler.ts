@@ -1,7 +1,6 @@
-import { ProcessMeetingData } from '../lib/events';
+import { MEETINGAUDIO_AZURE_CONTAINER, MeetingInfo } from '../lib/meetingTypes';
 import OpenAI from 'openai';
-import { BlobServiceClient, BlobClient } from '@azure/storage-blob';
-import { Readable } from 'stream';
+import { BlobServiceClient } from '@azure/storage-blob';
 
 const FileClass = globalThis.File;
 
@@ -15,21 +14,7 @@ export async function streamToBuffer(
     return Buffer.concat(chunks);
 }
 
-function parseContainerAndBlobName(blobUrl: string): {
-    containerName: string;
-    blobName: string;
-} {
-    const url = new URL(blobUrl);
-    const pathParts = url.pathname.slice(1).split('/');
-    const containerName = pathParts.shift() ?? '';
-    const blobName = pathParts.join('/');
-
-    return { containerName, blobName };
-}
-
-export default async function ProcessMeetingEventHandler(
-    data: ProcessMeetingData
-) {
+export default async function ProcessMeetingEventHandler(data: MeetingInfo) {
     if (!process.env.AZURE_STORAGE_CONNECTION_STRING) {
         throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
     }
@@ -44,16 +29,10 @@ export default async function ProcessMeetingEventHandler(
     const openAIClient = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY
     });
-    const { containerName, blobName } = parseContainerAndBlobName(
-        data.audio_url
-    );
-
-    console.log('Container name:', containerName);
-    console.log('Blob name:', blobName);
 
     const blobClient = blobServiceClient
-        .getContainerClient(containerName)
-        .getBlockBlobClient(blobName);
+        .getContainerClient(MEETINGAUDIO_AZURE_CONTAINER)
+        .getBlockBlobClient(data.audioFile);
 
     const downloadResponse = await blobClient.download(0);
 
