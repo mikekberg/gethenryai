@@ -1,77 +1,34 @@
 import {
     Get,
     JsonController,
-    Req,
-    UseBefore,
     Param,
     QueryParam,
-    Authorized
+    Authorized,
+    CurrentUser
 } from 'routing-controllers';
-import {
-    BlobSASPermissions,
-    BlobServiceClient,
-    ContainerClient
-} from '@azure/storage-blob';
-import { TableClient } from '@azure/data-tables';
-import { QueueClient, QueueServiceClient } from '@azure/storage-queue';
-import { Request } from 'express';
+import { BlobSASPermissions, ContainerClient } from '@azure/storage-blob';
+import { TableClient, TableServiceClient } from '@azure/data-tables';
 import { v4 as uuidv4 } from 'uuid';
-import { ProcessMeetingEvent } from '../lib/events';
-import {
-    MEETINGAUDIO_AZURE_CONTAINER,
-    MeetingInfo
-} from 'src/lib/meetingTypes';
+import { MeetingInfo } from 'src/lib/meetingTypes';
+import { Service } from 'typedi';
+import User from 'src/lib/user';
+import { EventQueue } from 'src/services/eventQueue';
 
+@Service()
 @JsonController('/meetings')
 @Authorized()
 export class MeetingInfoController {
-    private static readonly MEETING_TABLE_NAME = 'meetings';
-
-    private azureMeetingTableClient: TableClient;
-    private processMeetingQueue: QueueClient;
-    private meetingAudioBlobClient: ContainerClient;
-
-    constructor() {
-        if (process.env.AZURE_TABLES_CONNECTION_STRING === undefined) {
-            throw new Error('AZURE_TABLES_CONNECTION_STRING is not set');
-        }
-
-        if (process.env.AZURE_STORAGE_CONNECTION_STRING === undefined) {
-            throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
-        }
-
-        if (process.env.AZURE_QUEUE_CONNECTION_STRING === undefined) {
-            throw new Error('AZURE_QUEUE_CONNECTION_STRING is not set');
-        }
-
-        this.azureMeetingTableClient = TableClient.fromConnectionString(
-            process.env.AZURE_TABLES_CONNECTION_STRING,
-            MeetingInfoController.MEETING_TABLE_NAME
-        );
-
-        this.processMeetingQueue = QueueServiceClient.fromConnectionString(
-            process.env.AZURE_QUEUE_CONNECTION_STRING
-        ).getQueueClient('events');
-
-        this.meetingAudioBlobClient = BlobServiceClient.fromConnectionString(
-            process.env.AZURE_STORAGE_CONNECTION_STRING
-        ).getContainerClient(MEETINGAUDIO_AZURE_CONTAINER);
-    }
-
-    private async queueProcessMeetingEvent(data: MeetingInfo) {
-        const event: ProcessMeetingEvent = {
-            event_name: 'process_meeting',
-            data
-        };
-
-        await this.processMeetingQueue.sendMessage(btoa(JSON.stringify(event)));
-    }
+    constructor(
+        private meetingsTable: TableClient,
+        private eventQueue: EventQueue,
+        private meetingAudioContainerClient: ContainerClient
+    ) {}
 
     @Get('/')
-    public async getMeetings(@Req() request: Request) {
-        const meetings = await this.azureMeetingTableClient.listEntities({
+    public async getMeetings(@CurrentUser() user: User) {
+        const meetings = await this.meetingsTable.listEntities({
             queryOptions: {
-                filter: `userId eq '${request.auth?.payload.sub}'`
+                filter: `userId eq '${user.userId}'`
             }
         });
 
@@ -90,16 +47,11 @@ export class MeetingInfoController {
     }
 
     @Get('/generate-upload-url')
-    public async generateDownloadUrl(@Req() request: Request) {
-        if (request.auth?.payload.sub === undefined) {
-            throw new Error('User ID not found in request');
-        }
-
-        const userId = request.auth?.payload.sub;
+    public async generateDownloadUrl(@CurrentUser() user: User) {
         const meetingId = uuidv4();
 
-        const blobClient = this.meetingAudioBlobClient.getBlockBlobClient(
-            `${userId}/${meetingId}.wav`
+        const blobClient = this.meetingAudioContainerClient.getBlobClient(
+            `${user.userId}/${meetingId}`
         );
 
         const uploadUrl = await blobClient.generateSasUrl({
@@ -119,17 +71,12 @@ export class MeetingInfoController {
         @Param('id') id: string,
         @QueryParam('calendarEventId', { required: false })
         calendarEventId: string,
-        @Req() request: Request
+        @CurrentUser() user: User
     ) {
-        if (request.auth?.payload.sub === undefined) {
-            throw new Error('User ID not found in request');
-        }
-
-        const userId = request.auth?.payload.sub;
-        const audioFile = `${userId}/${id}.wav`;
+        const audioFile = `${user.userId}/${id}.wav`;
 
         if (
-            !(await this.meetingAudioBlobClient
+            !(await this.meetingAudioContainerClient
                 .getBlobClient(audioFile)
                 .exists())
         ) {
@@ -140,19 +87,19 @@ export class MeetingInfoController {
 
         const meetingInfo: MeetingInfo = {
             id,
-            userId,
+            userId: user.userId,
             audioFile,
             calendarEventId,
             state: 'processing'
         };
 
-        await this.azureMeetingTableClient.createEntity({
+        await this.meetingsTable.createEntity({
             rowKey: meetingInfo.id,
-            partitionKey: userId,
+            partitionKey: user.userId,
             ...meetingInfo
         });
 
-        await this.queueProcessMeetingEvent(meetingInfo);
+        await this.eventQueue.processMeeting(meetingInfo);
 
         return {
             message: 'Meeting created',

@@ -1,5 +1,5 @@
 {
-    "include": ["src", "httpFunction/index.ts"],
+    "include": ["src", "httpFunction/index.ts", "processEvents/eventHandlers"],
     "compileOnSave": false,
     "ts-node": {
         "files": true

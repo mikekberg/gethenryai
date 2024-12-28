@@ -15,3 +15,5 @@ export interface MeetingInfo {
 }
 
 export const MEETINGAUDIO_AZURE_CONTAINER = 'meetingaudio';
+export const MEETING_TABLE_NAME = 'meetings';
+export const EVENT_QUEUE_NAME = 'events';

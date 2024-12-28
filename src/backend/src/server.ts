@@ -1,47 +1,22 @@
 import 'reflect-metadata';
 
-import express, { Application } from 'express';
-import { Action, createExpressServer, useContainer } from 'routing-controllers';
-import { auth, AuthOptions } from 'express-oauth2-jwt-bearer';
+import { Application } from 'express';
+import { registerAzureServices } from './lib/diServices';
+import { createExpressServer, useContainer } from 'routing-controllers';
 import { GoogleCalendarController } from './controllers/googlecalendar.controller';
 import { PingController } from './controllers/ping.controller';
 import { MeetingInfoController } from './controllers/meetinginfo.controller';
 import { Container } from 'typedi';
-import AuthManagementService from './services/authManagementService';
+import AuthManagementService, {
+    auth0AuthChecker,
+    currentUserChecker
+} from './services/authManagementService';
+import { ManagementClient } from 'auth0';
 
 // Enable Dependency Injection
 useContainer(Container);
 
-// Authorization Checker
-function auth0AuthChecker(opts: AuthOptions) {
-    const auth0 = auth(opts);
-
-    return async (action: Action, roles: string[]) =>
-        new Promise<boolean>((resolve, reject) => {
-            auth0(action.request, action.response, (err: any) => {
-                if (err) {
-                    reject(false);
-                } else {
-                    resolve(true);
-                }
-            });
-        });
-}
-
-// Current User Checker
-function currentUserChecker(authService: AuthManagementService) {
-    return (action: Action) => {
-        const userId = action.request.auth?.payload?.sub;
-
-        if (!userId) {
-            return null;
-        } else {
-            return authService.getAuth0UserInfo(userId);
-        }
-    };
-}
-
-export interface HeneryAPIServerConfig {
+export interface HenryAPIServerConfig {
     port?: number;
     routePrefix?: string;
 }
@@ -49,8 +24,44 @@ export interface HeneryAPIServerConfig {
 export default class HenryAPIServer {
     public app: Application;
 
-    constructor(public config: HeneryAPIServerConfig = {}) {
-        this.app = createExpressServer({
+    constructor(public config: HenryAPIServerConfig = {}) {
+        this.config.port = config.port || Number(process.env.port) || 3000;
+
+        this.initServices(Container);
+        this.app = this.createApp(config);
+    }
+
+    private initServices(container: typeof Container) {
+        // Check for required environment variables
+        if (!process.env.AUTH0_DOMAIN) {
+            throw new Error('Environment variable AUTH0_DOMAIN is missing');
+        }
+        if (!process.env.AUTH0_CLIENT_ID) {
+            throw new Error('Environment variable AUTH0_CLIENT_ID is missing');
+        }
+        if (!process.env.AUTH0_CLIENT_SECRET) {
+            throw new Error(
+                'Environment variable AUTH0_CLIENT_SECRET is missing'
+            );
+        }
+
+        registerAzureServices(container);
+
+        // Register services
+        container.set(
+            ManagementClient,
+            new ManagementClient({
+                domain: process.env.AUTH0_DOMAIN,
+                clientId: process.env.AUTH0_CLIENT_ID,
+                clientSecret: process.env.AUTH0_CLIENT_SECRET
+            })
+        );
+
+        container.set(HenryAPIServer, this);
+    }
+
+    private createApp(config: HenryAPIServerConfig) {
+        return createExpressServer({
             defaults: {
                 nullResultCode: 404,
                 undefinedResultCode: 204,
@@ -79,8 +90,6 @@ export default class HenryAPIServer {
             ],
             middlewares: []
         });
-
-        this.config.port = config.port || Number(process.env.port) || 3000;
     }
 
     public start() {

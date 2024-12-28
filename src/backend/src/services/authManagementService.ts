@@ -1,31 +1,16 @@
 import { ManagementClient } from 'auth0';
+import { auth, AuthOptions } from 'express-oauth2-jwt-bearer';
 import { google } from 'googleapis';
+import { Action } from 'routing-controllers';
+import User from 'src/lib/user';
 import { Service } from 'typedi';
 
 @Service()
 export default class AuthManagementService {
-    private auth0MgmtClient: ManagementClient;
-
-    constructor() {
-        if (
-            !process.env.AUTH0_DOMAIN ||
-            !process.env.AUTH0_CLIENT_ID ||
-            !process.env.AUTH0_CLIENT_SECRET
-        ) {
-            throw new Error(
-                'Auth0 domain, client ID and secret must be provided in the environment'
-            );
-        }
-
-        this.auth0MgmtClient = new ManagementClient({
-            domain: process.env.AUTH0_DOMAIN,
-            clientId: process.env.AUTH0_CLIENT_ID,
-            clientSecret: process.env.AUTH0_CLIENT_SECRET
-        });
-    }
+    constructor(private managementClient: ManagementClient) {}
 
     public async getAuth0UserInfo(userId: string) {
-        return (await this.auth0MgmtClient.users.get({ id: userId })).data;
+        return (await this.managementClient.users.get({ id: userId })).data;
     }
 
     public getGoogleAuthClient(access_token: string) {
@@ -36,4 +21,44 @@ export default class AuthManagementService {
 
         return authClient;
     }
+}
+
+// Authorization Checker
+export function auth0AuthChecker(opts: AuthOptions) {
+    const auth0 = auth(opts);
+
+    return async (action: Action, roles: string[]) =>
+        new Promise<boolean>((resolve, reject) => {
+            auth0(action.request, action.response, (err: any) => {
+                if (err) {
+                    reject(false);
+                } else {
+                    resolve(true);
+                }
+            });
+        });
+}
+
+// Current User Checker
+export function currentUserChecker(authService: AuthManagementService) {
+    return async (action: Action): Promise<User | null> => {
+        const userId = action.request.auth?.payload?.sub;
+
+        if (!userId) {
+            return null;
+        } else {
+            const auth0Info = await authService.getAuth0UserInfo(userId);
+            const googleToken = auth0Info.identities.find(
+                (i) => i.provider === 'google-oauth2'
+            )?.access_token;
+
+            return {
+                userId: auth0Info.user_id,
+                auth0UserInfo: auth0Info,
+                googleAuthClient: googleToken
+                    ? authService.getGoogleAuthClient(googleToken)
+                    : undefined
+            };
+        }
+    };
 }

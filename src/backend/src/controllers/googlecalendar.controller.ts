@@ -1,19 +1,29 @@
-import { Get, Req, JsonController, Authorized } from 'routing-controllers';
+import {
+    Get,
+    Req,
+    JsonController,
+    Authorized,
+    CurrentUser
+} from 'routing-controllers';
 import { google } from 'googleapis';
 import { Request } from 'express';
+import { Service } from 'typedi';
+import User from 'src/lib/user';
 
+@Service()
 @JsonController('/gcal')
 @Authorized()
 export class GoogleCalendarController {
-    @Get('/events')
-    public async getEvents(@Req() request: Request) {
-        if (!request.googleAuthClient) {
-            throw new Error('Unable to get google Auth client');
-        }
+    constructor() {}
 
+    @Get('/events')
+    public async getEvents(
+        @Req() request: Request,
+        @CurrentUser({ required: true }) user: User
+    ) {
         const calendar = google.calendar({
             version: 'v3',
-            auth: request.googleAuthClient
+            auth: user.googleAuthClient
         });
 
         // Fetch the list of upcoming events
